@@ -1,9 +1,12 @@
 'use strict';
 const assert = require('assert');
 const { templateTags } = require('../index');
+const plugin = require('../main');
 const run = (name, ...args) => templateTags.find(tag => tag.name === name).run({}, ...args);
 
 async function main() {
+  const exportedCounter = plugin.templateTags.find(tag => tag.name === 'fakerCounter');
+  assert(exportedCounter, 'The public plugin entry point must export fakerCounter');
   assert.equal(templateTags.length, 45);
   assert.match(run('fakerUuid'), /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
   assert.match(run('fakerGuid', true), /^\{[0-9a-f-]{36}\}$/i);
