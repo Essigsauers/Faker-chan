@@ -1,6 +1,6 @@
 {
   "name": "insomnia-plugin-faker-chan",
-  "version": "0.9.1",
+  "version": "0.9.2",
   "description": "A QA-oriented test data generator for Insomnia.",
   "private": true,
   "author": "",
