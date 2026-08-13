@@ -1,0 +1,21 @@
+{
+  "name": "insomnia-plugin-faker-chan",
+  "version": "0.9.0",
+  "description": "A QA-oriented test data generator for Insomnia.",
+  "private": true,
+  "author": "",
+  "license": "MIT",
+  "keywords": [
+    "insomnia",
+    "insomnia-plugin",
+    "faker",
+    "test-data",
+    "qa",
+    "api-testing"
+  ],
+  "insomnia": {
+    "name": "faker-chan",
+    "description": "A QA-oriented test data generator for Insomnia."
+  },
+  "main": "main.js"
+}
