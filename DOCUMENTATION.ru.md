@@ -2,93 +2,195 @@
 
 > English version: [DOCUMENTATION.en.md](DOCUMENTATION.en.md)
 
-## Назначение
+Faker Chan — плагин Insomnia для генерации синтетических значений во время подготовки HTTP-запроса
 
-Faker Chan создаёт синтетические значения для проверки API прямо в Insomnia
+## Быстрый старт
 
-Используйте его, чтобы заполнить URL, query-параметры, заголовки, тело запроса или поля аутентификации без ручного ввода
+1. Откройте URL, query-параметр, заголовок, тело запроса или поле авторизации
+2. Нажмите `Ctrl+Space` и откройте список Template Tags
+3. Найдите тег по префиксу `FakeC`
+4. Выберите тег и заполните параметры, если они есть
 
-## Как добавить значение
-
-1. Поставьте курсор в нужное поле запроса
-2. Нажмите `Ctrl+Space`
-3. Введите `FakeC` в поиске Template Tags
-4. Выберите тег и настройте его параметры
-
-Теги начинаются с `FakeC -`, например `FakeC - Identifier UUID`
-
-Тег возвращает значение без дополнительных кавычек
+Insomnia вставляет выражение тега в выбранное поле, а его результат получает запрос при рендеринге
 
 ```json
 {
-  "email": "<тег FakeC - Contact Email>",
-  "id": "<тег FakeC - Identifier - Counter>"
+  "email": "<FakeC - Contact Email>",
+  "requestId": "<FakeC - Identifier UUID>",
+  "createdAt": "<FakeC - Date & Time ISO Timestamp>"
 }
 ```
 
-Insomnia вставляет фактическое выражение тега автоматически
+Теги возвращают готовые значения без дополнительных кавычек, поэтому в JSON выражение размещается внутри строкового значения, а тип результата определяется самим полем запроса
 
-## Язык интерфейса
+## Как устроены теги
 
-Insomnia передаёт плагину одно статическое поле `displayName` и не сообщает текущий язык интерфейса
+Каждый тег экспортируется из `index.js` как объект с пятью основными свойствами
 
-Поэтому названия тегов не меняются во время работы приложения
+| Свойство | Назначение |
+| --- | --- |
+| `name` | Внутреннее имя, которое использует Insomnia при вычислении |
+| `displayName` | Название в списке Template Tags с префиксом `FakeC` |
+| `description` | Короткое описание в интерфейсе Insomnia |
+| `args` | Параметры, их типы, значения по умолчанию и варианты выбора |
+| `run` | Функция, возвращающая значение тега |
 
-Для поиска и отображения используется нейтральный префикс `FakeC`
+`main.js` остаётся стабильной точкой входа и передаёт Insomnia тот же массив `templateTags`
 
-## Генераторы
+Названия тегов не локализуются во время работы приложения: API плагинов Insomnia предоставляет статическое поле `displayName` и не сообщает текущий язык интерфейса. Поэтому для поиска используется единый префикс `FakeC`, а названия категорий и параметры остаются на английском
 
-| Группа | Теги | Параметры | Пример | Ограничения и особенности |
-| --- | --- | --- | --- | --- |
-| Идентификаторы | UUID, GUID, Random ID | У GUID: `Braces`<br>У Random ID: `Length`, `Character Set` | `550e8400-e29b-41d4-a716-446655440000`, `{550e8400-e29b-41d4-a716-446655440000}`, `A7fj29KwP1` | UUID и GUID создают UUID v4<br>Random ID по умолчанию содержит 10 буквенно-цифровых символов |
-| Счётчик | Counter | `Scope`, `Counter Name`, `Initial Value`, `Step`, `Prefix`, `Suffix`, `Padding`, `Increment Mode` | `push-0009-test` | Состояние сохраняется отдельно для каждого имени и области |
-| Пользователь | First Name, Last Name, Username | У Username: `Strategy` | `Александр`, `Петров`, `alexander.petrov` | Имена и фамилии русские<br>Username содержит только ASCII-символы |
-| Контакты | Email, Phone Number | Нет | `alex.petrov42@example.com`, `+79161234567` | Email использует `example.com`, `example.org` или `example.net`<br>Телефон имеет формат `+79XXXXXXXXX` |
-| Адрес | Country, City, Street, Postal Code, Full Address | Нет | `Россия`, `Москва`, `Тверская`, `125009` | Город, улица и индекс соответствуют российскому формату |
-| Координаты | Latitude, Longitude, Coordinates | `Precision` | `55.755826, 37.617300` | Точность от 0 до 12 знаков после запятой |
-| Дата и время | Current Date, Past Date, Future Date, Unix Timestamp, ISO Timestamp | У дат: `Format`<br>У Past Date и Future Date: `Range (days)`<br>У Unix Timestamp: `Unit` | `2026-08-13`, `1786635000`, `2026-08-13T13:30:00.000Z` | Даты и ISO-время используют UTC<br>Диапазон дат по умолчанию равен 30 дням |
-| Числа | Positive Integer, Negative Integer, Decimal, Percentage, Number in Range | У чисел: `Min`, `Max`<br>У Decimal: `Precision`<br>У Percentage: `Mode`, `Precision`<br>У Number in Range: `Mode` | `42`, `-583`, `583.42` | Процент всегда находится в диапазоне от 0 до 100<br>Точность дробных чисел от 0 до 12 знаков |
-| Строки | Length 0, 1, 255, 256, 1025, 4096, Custom Length | У Custom Length: `Length`, `Character Set` | `QA83aF` | Теги фиксированной длины создают ровно указанное число буквенно-цифровых символов |
-| Безопасность | Random JWT, Unsigned JWT, Signed JWT (HS256) | У Signed JWT: `Secret`, `Payload JSON`, `Expiration (seconds)` | `header.payload.signature` | Используйте Unsigned JWT только в разрешённых тестовых сценариях<br>Secret применяется только во время вычисления тега |
-| HTTP | User-Agent, Content-Type, Accept, Accept-Language, Authorization, X-Request-ID, X-Correlation-ID, X-Forwarded-For | У Authorization: `Scheme` | `application/json`, `Bearer eyJ...`, `192.0.2.15` | `X-Forwarded-For` использует диапазон адресов для документации `192.0.2.0/24` |
+Описания в списке Insomnia выводятся без точек в конце, чтобы элементы списка имели единый вид
 
-## Счётчик
+## Каталог генераторов
 
-`Counter` создаёт последовательный идентификатор и хранит его состояние
+В проекте 45 тегов, объединённых в 9 групп
 
-| Параметр | По умолчанию | Назначение |
+### Идентификаторы
+
+| Отображаемое имя | Внутреннее имя | Параметры | Результат |
+| --- | --- | --- | --- |
+| `FakeC - Identifier UUID` | `fakerUuid` | Нет | UUID v4 |
+| `FakeC - Identifier GUID` | `fakerGuid` | `Braces`: `false` | UUID v4, при `true` обёрнутый в `{}` |
+| `FakeC - Identifier Random ID` | `fakerRandomId` | `Length`: `10`, `Character Set`: `alphanumeric` | Строка из букв и цифр |
+| `FakeC - Identifier Counter` | `fakerCounter` | `Scope`: `folder`, `Counter Name`: `id`, `Initial Value`: `0`, `Step`: `1`, `Prefix`: пусто, `Suffix`: пусто, `Padding`: `0` | Последовательное число с форматированием |
+
+Для `Random ID` доступны наборы `digits`, `letters`, `alphanumeric`, `lowercase` и `uppercase`
+
+### Персональные и контактные данные
+
+| Отображаемое имя | Внутреннее имя | Параметры | Результат |
+| --- | --- | --- | --- |
+| `FakeC - Person First Name` | `fakerFirstName` | Нет | Русское имя из встроенного набора |
+| `FakeC - Person Last Name` | `fakerLastName` | Нет | Русская фамилия из встроенного набора |
+| `FakeC - Person Username` | `fakerUsername` | `Strategy`: `name-dot-last` | ASCII-логин |
+| `FakeC - Contact Email` | `fakerEmail` | Нет | Адрес на `example.com`, `example.org` или `example.net` |
+| `FakeC - Contact Phone Number` | `fakerPhoneRu` | Нет | Российский мобильный номер формата `+79XXXXXXXXX` |
+
+Для `Username` доступны стратегии `random`, `name-dot-last`, `last-number` и `user-number`
+
+### Адреса и координаты
+
+| Отображаемое имя | Внутреннее имя | Параметры | Результат |
+| --- | --- | --- | --- |
+| `FakeC - Location Country` | `fakerCountry` | Нет | `Россия` |
+| `FakeC - Location City` | `fakerCity` | Нет | Российский город из встроенного набора |
+| `FakeC - Location Street` | `fakerStreet` | Нет | Название улицы из встроенного набора |
+| `FakeC - Location Postal Code` | `fakerPostalCode` | Нет | Шесть цифр |
+| `FakeC - Location Full Address` | `fakerFullAddress` | Нет | Город, улица и номер дома |
+| `FakeC - Location Latitude` | `fakerLatitude` | `Precision`: `6` | Широта от `-90` до `90` |
+| `FakeC - Location Longitude` | `fakerLongitude` | `Precision`: `6` | Долгота от `-180` до `180` |
+| `FakeC - Location Coordinates` | `fakerCoordinates` | `Precision`: `6` | Широта и долгота через `, ` |
+
+`Precision` ограничивается диапазоном от 0 до 12 знаков после запятой
+
+### Дата и время
+
+| Отображаемое имя | Внутреннее имя | Параметры | Результат |
+| --- | --- | --- | --- |
+| `FakeC - Date & Time Current Date` | `fakerCurrentDate` | `Format`: `YYYY-MM-DD` | Текущая дата по UTC |
+| `FakeC - Date & Time Past Date` | `fakerPastDate` | `Range (days)`: `30`, `Format`: `YYYY-MM-DD` | Дата от 1 до указанного числа дней назад |
+| `FakeC - Date & Time Future Date` | `fakerFutureDate` | `Range (days)`: `30`, `Format`: `YYYY-MM-DD` | Дата от 1 до указанного числа дней вперёд |
+| `FakeC - Date & Time Unix Timestamp` | `fakerUnixTimestamp` | `Unit`: `seconds` | Unix-время в секундах или миллисекундах |
+| `FakeC - Date & Time ISO Timestamp` | `fakerIsoTimestamp` | Нет | Текущая дата в ISO 8601 по UTC |
+
+Для форматирования даты используются токены `YYYY`, `MM` и `DD`. Диапазон `Range (days)` ограничивается значениями от 1 до 36500
+
+### Числа
+
+| Отображаемое имя | Внутреннее имя | Параметры по умолчанию | Результат |
+| --- | --- | --- | --- |
+| `FakeC - Number Positive Integer` | `fakerPositiveInteger` | `Min`: `1`, `Max`: `1000` | Положительное целое число |
+| `FakeC - Number Negative Integer` | `fakerNegativeInteger` | `Min`: `-1000`, `Max`: `-1` | Отрицательное целое число |
+| `FakeC - Number Decimal` | `fakerDecimal` | `Min`: `0`, `Max`: `1000`, `Precision`: `2` | Дробное число с фиксированной точностью |
+| `FakeC - Number Percentage` | `fakerPercentage` | `Mode`: `integer`, `Precision`: `2` | Значение от 0 до 100 |
+| `FakeC - Number Number in Range` | `fakerNumberRange` | `Min`: `0`, `Max`: `100`, `Mode`: `integer` | Целое или дробное число в диапазоне |
+
+Точность дробных значений ограничивается диапазоном от 0 до 12 знаков. Если минимальное значение больше максимального, границы меняются местами
+
+### Строки
+
+| Отображаемое имя | Внутреннее имя | Параметры | Результат |
+| --- | --- | --- | --- |
+| `FakeC - String Length 0` | `fakerString0` | Нет | Пустая строка |
+| `FakeC - String Length 1` | `fakerString1` | Нет | 1 буквенно-цифровой символ |
+| `FakeC - String Length 255` | `fakerString255` | Нет | 255 буквенно-цифровых символов |
+| `FakeC - String Length 256` | `fakerString256` | Нет | 256 буквенно-цифровых символов |
+| `FakeC - String Length 1025` | `fakerString1025` | Нет | 1025 буквенно-цифровых символов |
+| `FakeC - String Length 4096` | `fakerString4096` | Нет | 4096 буквенно-цифровых символов |
+| `FakeC - String Custom Length` | `fakerCustomString` | `Length`: `16`, `Character Set`: `alphanumeric` | Строка длиной от 0 до 100000 символов |
+
+Для `Custom Length` доступны наборы `latin`, `numeric` и `alphanumeric`
+
+### JWT и безопасность
+
+| Отображаемое имя | Внутреннее имя | Параметры | Результат |
+| --- | --- | --- | --- |
+| `FakeC - Security Random JWT` | `fakerRandomJwt` | Нет | Синтетическое значение из трёх JWT-сегментов |
+| `FakeC - Security Unsigned JWT` | `fakerUnsignedJwt` | Нет | JWT с `alg: none` и пустой подписью |
+| `FakeC - Security Signed JWT (HS256)` | `fakerSignedJwtHs256` | `Secret`: `test-secret`, `Payload JSON`: `{"sub":"1234567890"}`, `Expiration (seconds)`: `3600` | JWT с подписью HMAC-SHA256 |
+
+Эти теги предназначены для тестовых данных. `Unsigned JWT` не подтверждает подлинность и подходит только для разрешённых негативных сценариев. Секрет `Signed JWT` используется только в памяти во время вычисления и не сохраняется плагином
+
+Некорректный JSON в `Payload JSON` заменяется телом `{"sub":"1234567890"}`. Срок действия ограничивается значениями от 1 до 31536000 секунд
+
+### HTTP
+
+| Отображаемое имя | Внутреннее имя | Параметры | Результат |
+| --- | --- | --- | --- |
+| `FakeC - HTTP User-Agent` | `fakerUserAgent` | Нет | User-Agent Chrome, Safari или Linux-браузера |
+| `FakeC - HTTP Content-Type` | `fakerContentType` | Нет | Один из распространённых Content-Type |
+| `FakeC - HTTP Accept` | `fakerAccept` | Нет | Один из распространённых Accept |
+| `FakeC - HTTP Accept-Language` | `fakerAcceptLanguage` | Нет | `ru-RU`, `en-US` или `de-DE` |
+| `FakeC - HTTP Authorization` | `fakerAuthorization` | `Scheme`: `bearer` | Bearer или Basic авторизация |
+| `FakeC - HTTP X-Request-ID` | `fakerXRequestId` | Нет | UUID v4 |
+| `FakeC - HTTP X-Correlation-ID` | `fakerXCorrelationId` | Нет | UUID v4 |
+| `FakeC - HTTP X-Forwarded-For` | `fakerXForwardedFor` | Нет | IPv4 из диапазона документации `192.0.2.0/24` |
+
+Для `Authorization` доступны схемы `bearer` и `basic`. Bearer использует случайное JWT-подобное значение, Basic кодирует синтетические учётные данные в Base64URL
+
+## Counter: состояние и области
+
+`Counter` возвращает `current + Step`, а результат сохраняет только при отправке запроса. При просмотре значения и наведении на тег используется режим `preview`, поэтому состояние не изменяется
+
+| Параметр | По умолчанию | Поведение |
 | --- | --- | --- |
-| `Scope` | `Folder` | Выбирает область хранения |
-| `Counter Name` | `id` | Разделяет независимые счётчики |
-| `Initial Value` | `0` | Задаёт значение до первого увеличения |
-| `Step` | `1` | Задаёт величину увеличения |
-| `Prefix` | Пусто | Добавляет текст перед числом |
-| `Suffix` | Пусто | Добавляет текст после числа |
-| `Padding` | `0` | Добавляет ведущие нули до заданной длины |
-| `Increment Mode` | `Before Send` | Определяет момент сохранения следующего значения |
+| `Scope` | `Folder` | Выбирает область общего состояния |
+| `Counter Name` | `id` | Разделяет независимые последовательности |
+| `Initial Value` | `0` | Базовое значение и признак сброса последовательности |
+| `Step` | `1` | Величина увеличения |
+| `Prefix` | Пусто | Текст перед числом |
+| `Suffix` | Пусто | Текст после числа |
+| `Padding` | `0` | Минимальная длина числа с ведущими нулями |
 
-При `Initial Value` = `8` и `Step` = `1` первый результат равен `9`
+Область определяется так
 
-При `Padding` = `4` значения выглядят так: `0009`, `0010`, `0011`
+- `Request` хранит отдельную последовательность для одного запроса
+- `Folder` делит последовательность между запросами одной папки
+- `Workspace` делит последовательность между запросами рабочей области
+- `Global` делит последовательность между рабочими областями в локальном хранилище плагина
 
-Несколько последовательностей можно вести с помощью разных значений `Counter Name`, например `push_id`, `campaign_id` и `message_id`
+Для `Folder` и `Workspace` плагин получает иерархию коллекции через экспорт данных Insomnia. Если экспорт недоступен, используется запасной идентификатор на основе запроса, поэтому область остаётся изолированной
 
-### Область хранения
+Изменение `Initial Value` сбрасывает сохранённую последовательность. Например, при сохранённом значении `1`, новом `Initial Value` `255` и `Step` `1` следующий результат равен `256`
 
-- `Request`: отдельное значение для конкретного запроса
-- `Folder`: общее значение для запросов в одной папке
-- `Workspace`: общее значение для всех запросов текущей рабочей области
-- `Global`: общее значение для рабочих областей в локальном хранилище плагина
+## Структура проекта
 
-Для `Folder` и `Workspace` плагин определяет структуру текущей коллекции через экспорт данных Insomnia
+| Файл | Назначение |
+| --- | --- |
+| `index.js` | Данные генераторов, общие функции случайных значений, форматирование дат, JWT и логика `Counter` |
+| `main.js` | Стабильная точка входа Insomnia |
+| `test/index.test.js` | Проверки количества тегов, форматов значений, JWT и жизненного цикла `Counter` |
+| `package.json` | Метаданные пакета, версия `0.9.2` и точка входа |
+| `README.md` | Короткое описание и быстрый старт |
+| `DOCUMENTATION.ru.md` | Полная документация на русском языке |
+| `DOCUMENTATION.en.md` | Полная документация на английском языке |
 
-Если данные коллекции недоступны в контексте Template Tag, применяется изолированная запасная область по ID запроса
+Все встроенные наборы данных находятся в начале `index.js`. Идентификаторы, целые числа и строки используют криптографический источник случайности, а координаты и дробные числа вычисляются через `Math.random`. Даты и временные метки зависят от текущего времени
 
-### Режим увеличения
+## Проверка проекта
 
-- `Before Send`: следующее значение сохраняется при вычислении тега перед отправкой запроса
-- `After Successful Response`: следующее значение сохраняется только после ответа со статусом от 200 до 299
+```text
+node test/index.test.js
+```
 
-Если сохранённое значение равно `8`, запрос получает `9`
-
-В режиме `After Successful Response` ответ `500` не изменяет сохранённое значение, поэтому следующий запрос снова получает `9`
+Проверка подтверждает публичную точку входа, наличие 45 тегов, отсутствие точек в описаниях, форматы основных значений и поведение `Counter` в режимах `preview` и `send`

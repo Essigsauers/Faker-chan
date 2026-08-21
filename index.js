@@ -1,7 +1,5 @@
 'use strict';
 
-// Insomnia template tags. No external dependencies are used so the plugin can
-// be installed directly from a folder or from npm.
 const crypto = require('crypto');
 
 const FIRST_NAMES = ['Александр', 'Алексей', 'Андрей', 'Анна', 'Виктория', 'Дмитрий', 'Екатерина', 'Елена', 'Иван', 'Мария', 'Михаил', 'Наталья', 'Ольга', 'Павел', 'Сергей', 'Татьяна'];
@@ -14,7 +12,6 @@ const ALPHA_LOWER = 'abcdefghijklmnopqrstuvwxyz';
 const ALPHA_UPPER = ALPHA_LOWER.toUpperCase();
 const NUMERIC = '0123456789';
 const memoryCounters = new Map();
-const pendingCounters = new Map();
 
 const pick = values => values[randomInt(0, values.length - 1)];
 const randomInt = (min, max) => {
@@ -37,29 +34,42 @@ const dateOffset = (direction, range, format) => {
   return formatDate(new Date(Date.now() + offset), format);
 };
 const base64url = value => Buffer.from(typeof value === 'string' ? value : JSON.stringify(value)).toString('base64url');
-const tag = (name, category, description, args, run, extra) => ({ name, displayName: `FakeC - ${category.replace(/ · /g, ' ')}`, description, args: args || [], run, ...(extra || {}) });
+const tag = (name, category, description, args, run, extra) => ({ name, displayName: `FakeC - ${category.replace(/ · /g, ' ')}`, description: description.replaceAll('.', ''), args: args || [], run, ...(extra || {}) });
 const numberArgs = (min, max, precision) => [
   { displayName: 'Min', type: 'number', defaultValue: min },
   { displayName: 'Max', type: 'number', defaultValue: max },
   ...(precision === undefined ? [] : [{ displayName: 'Precision', type: 'number', defaultValue: precision }]),
 ];
 
-const requestId = context => {
-  try { return context.request && typeof context.request.getId === 'function' ? context.request.getId() : 'unknown-request'; } catch (_) { return 'unknown-request'; }
+const directRequestId = context => {
+  try { return context.request && typeof context.request.getId === 'function' ? context.request.getId() : undefined; } catch (_) { return undefined; }
+};
+const requestId = async context => {
+  if (context.meta && context.meta.requestId) return context.meta.requestId;
+  const direct = directRequestId(context);
+  return direct || 'unknown-request';
 };
 const readCounter = async (context, key) => {
-  try { const value = await context.store.getItem(key); return value === null ? undefined : Number(value); } catch (_) { return memoryCounters.get(key); }
+  let stored;
+  try { stored = await context.store.getItem(key); } catch (_) { return memoryCounters.get(key); }
+  if (stored === null) return undefined;
+  try {
+    const state = JSON.parse(stored);
+    if (state && typeof state === 'object' && Number.isFinite(Number(state.value))) {
+      return { value: Number(state.value), initial: Number(state.initial) };
+    }
+  } catch (_) {}
+  const value = Number(stored);
+  return Number.isFinite(value) ? { value, initial: 0 } : undefined;
 };
-const writeCounter = async (context, key, value) => {
-  memoryCounters.set(key, value);
-  try { await context.store.setItem(key, String(value)); } catch (_) {}
+const writeCounter = async (context, key, state) => {
+  memoryCounters.set(key, state);
+  try { await context.store.setItem(key, JSON.stringify(state)); } catch (_) {}
 };
 const counterScopeId = async (context, scope) => {
   if (scope === 'global') return 'global';
-  const id = requestId(context);
+  const id = await requestId(context);
   if (scope === 'request') return `request:${id}`;
-  // The public Template Tag API only documents a request id. When data export
-  // is available, use its resource tree to obtain the actual folder/workspace.
   try {
     const raw = await context.data.export.insomnia({ includePrivate: false, format: 'json' });
     const resources = JSON.parse(raw).resources || [];
@@ -73,7 +83,6 @@ const counterScopeId = async (context, scope) => {
       if (node._type === 'workspace') return scope === 'folder' ? `folder:${folder || `root:${node._id}`}` : `workspace:${node._id}`;
     }
   } catch (_) {}
-  // Fallbacks deliberately isolate unknown contexts instead of mixing counters.
   return scope === 'folder' ? `folder:request:${id}` : `workspace:request:${id}`;
 };
 const formattedCounter = (value, prefix, suffix, padding) => `${String(prefix || '')}${String(value).padStart(boundedInt(padding, 0, 0, 100), '0')}${String(suffix || '')}`;
@@ -85,28 +94,23 @@ const counterArgs = [
   { displayName: 'Prefix', type: 'string', defaultValue: '' },
   { displayName: 'Suffix', type: 'string', defaultValue: '' },
   { displayName: 'Padding', type: 'number', defaultValue: 0 },
-  { displayName: 'Increment Mode', type: 'enum', defaultValue: 'before-send', options: [{ displayName: 'Before Send', value: 'before-send' }, { displayName: 'After Successful Response', value: 'after-success' }] },
 ];
 
 const templateTags = [
   tag('fakerUuid', 'Identifier · UUID', 'UUID v4.', [], () => crypto.randomUUID()),
   tag('fakerGuid', 'Identifier · GUID', 'UUID v4, optionally wrapped in braces.', [{ displayName: 'Braces', type: 'boolean', defaultValue: false }], (_ctx, braces) => { const id = crypto.randomUUID(); return braces ? `{${id}}` : id; }),
   tag('fakerRandomId', 'Identifier · Random ID', 'Random identifier.', [{ displayName: 'Length', type: 'number', defaultValue: 10 }, { displayName: 'Character Set', type: 'enum', defaultValue: 'alphanumeric', options: [{ displayName: 'Digits', value: 'digits' }, { displayName: 'Letters', value: 'letters' }, { displayName: 'Letters + digits', value: 'alphanumeric' }, { displayName: 'Lowercase', value: 'lowercase' }, { displayName: 'Uppercase', value: 'uppercase' }] }], (_ctx, length, set) => randomString(length, ({ digits: NUMERIC, letters: ALPHA_LOWER + ALPHA_UPPER, lowercase: ALPHA_LOWER, uppercase: ALPHA_UPPER, alphanumeric: ALPHA_LOWER + ALPHA_UPPER + NUMERIC }[set] || ALPHA_LOWER + ALPHA_UPPER + NUMERIC))),
-  tag('fakerCounter', 'Identifier - Counter', 'Persistent sequential identifier with scope and formatting.', counterArgs, async (context, scope, name, initial, step, prefix, suffix, padding, mode) => {
+  tag('fakerCounter', 'Identifier - Counter', 'Persistent sequential identifier with scope and formatting.', counterArgs, async (context, scope, name, initial, step, prefix, suffix, padding) => {
     const scopeId = await counterScopeId(context, scope || 'folder');
     const key = `counter:${scopeId}:${String(name || 'id')}`;
     const initialValue = Number.isFinite(Number(initial)) ? Number(initial) : 0;
     const increment = Number.isFinite(Number(step)) ? Number(step) : 1;
-    const pendingKey = `${requestId(context)}:${key}`;
-    let current = await readCounter(context, key);
-    if (!Number.isFinite(current)) current = initialValue;
-    const pending = pendingCounters.get(pendingKey);
-    if (pending) current = pending.value;
+    const state = await readCounter(context, key);
+    const current = state && state.initial === initialValue ? state.value : initialValue;
     const value = current + increment;
-    if (mode === 'after-success') pendingCounters.set(pendingKey, { key, value });
-    else await writeCounter(context, key, value);
+    if (context.renderPurpose === 'send') await writeCounter(context, key, { value, initial: initialValue });
     return formattedCounter(value, prefix, suffix, padding);
-  }, { disablePreview: () => true }),
+  }, { disablePreview: () => false }),
   tag('fakerFirstName', 'Person · First Name', 'Synthetic Russian first name.', [], () => pick(FIRST_NAMES)),
   tag('fakerLastName', 'Person · Last Name', 'Synthetic Russian last name.', [], () => pick(LAST_NAMES)),
   tag('fakerUsername', 'Person · Username', 'ASCII username safe for URLs and JSON.', [{ displayName: 'Strategy', type: 'enum', defaultValue: 'name-dot-last', options: [{ displayName: 'Random', value: 'random' }, { displayName: 'Name.last', value: 'name-dot-last' }, { displayName: 'last_number', value: 'last-number' }, { displayName: 'user + number', value: 'user-number' }] }], (_ctx, strategy) => { const first = slug(pick(FIRST_NAMES)); const last = slug(pick(LAST_NAMES)); const n = randomInt(100, 99999); return ({ random: randomString(10, ALPHA_LOWER + NUMERIC), 'name-dot-last': `${first}.${last}`, 'last-number': `${last}_${n}`, 'user-number': `user${n}` }[strategy] || `${first}.${last}`); }),
@@ -134,7 +138,7 @@ const templateTags = [
   tag('fakerCustomString', 'String · Custom Length', 'Random string with a chosen length and character set.', [{ displayName: 'Length', type: 'number', defaultValue: 16 }, { displayName: 'Character Set', type: 'enum', defaultValue: 'alphanumeric', options: [{ displayName: 'Latin', value: 'latin' }, { displayName: 'Numeric', value: 'numeric' }, { displayName: 'Alphanumeric', value: 'alphanumeric' }] }], (_ctx, length, set) => randomString(length, ({ latin: ALPHA_LOWER + ALPHA_UPPER, numeric: NUMERIC, alphanumeric: ALPHA_LOWER + ALPHA_UPPER + NUMERIC }[set] || ALPHA_LOWER + ALPHA_UPPER + NUMERIC))),
   tag('fakerRandomJwt', 'Security · Random JWT', 'JWT-shaped synthetic value for negative testing.', [], () => `${base64url({ alg: pick(['HS256', 'none']), typ: 'JWT' })}.${base64url({ sub: String(randomInt(1, 999999)), iat: Math.floor(Date.now() / 1000) })}.${randomString(43, ALPHA_LOWER + ALPHA_UPPER + NUMERIC + '-_')}`),
   tag('fakerUnsignedJwt', 'Security · Unsigned JWT', 'Unsigned JWT with alg:none, for authorised test use only.', [], () => `${base64url({ alg: 'none', typ: 'JWT' })}.${base64url({ sub: String(randomInt(1, 999999)), iat: Math.floor(Date.now() / 1000) })}.`),
-  tag('fakerSignedJwtHs256', 'Security · Signed JWT (HS256)', 'HS256 test JWT. Secret is only used in memory for this evaluation.', [{ displayName: 'Secret', type: 'string', defaultValue: 'test-secret' }, { displayName: 'Payload JSON', type: 'string', defaultValue: '{"sub":"1234567890"}' }, { displayName: 'Expiration (seconds)', type: 'number', defaultValue: 3600 }], (_ctx, secret, payload, expiration) => { let body; try { body = JSON.parse(payload); } catch (_) { body = { sub: '1234567890' }; } const now = Math.floor(Date.now() / 1000); body.iat = now; body.exp = now + boundedInt(expiration, 3600, 1, 31536000); const header = base64url({ alg: 'HS256', typ: 'JWT' }); const encoded = base64url(body); const signature = crypto.createHmac('sha256', String(secret || '')).update(`${header}.${encoded}`).digest('base64url'); return `${header}.${encoded}.${signature}`; }),
+  tag('fakerSignedJwtHs256', 'Security · Signed JWT (HS256)', 'HS256 test JWT, secret is only used in memory for this evaluation.', [{ displayName: 'Secret', type: 'string', defaultValue: 'test-secret' }, { displayName: 'Payload JSON', type: 'string', defaultValue: '{"sub":"1234567890"}' }, { displayName: 'Expiration (seconds)', type: 'number', defaultValue: 3600 }], (_ctx, secret, payload, expiration) => { let body; try { body = JSON.parse(payload); } catch (_) { body = { sub: '1234567890' }; } const now = Math.floor(Date.now() / 1000); body.iat = now; body.exp = now + boundedInt(expiration, 3600, 1, 31536000); const header = base64url({ alg: 'HS256', typ: 'JWT' }); const encoded = base64url(body); const signature = crypto.createHmac('sha256', String(secret || '')).update(`${header}.${encoded}`).digest('base64url'); return `${header}.${encoded}.${signature}`; }),
   tag('fakerUserAgent', 'HTTP · User-Agent', 'Common browser User-Agent value.', [], () => pick(USER_AGENTS)),
   tag('fakerContentType', 'HTTP · Content-Type', 'Common Content-Type value.', [], () => pick(['application/json', 'application/xml', 'text/plain', 'multipart/form-data', 'application/x-www-form-urlencoded'])),
   tag('fakerAccept', 'HTTP · Accept', 'Common Accept value.', [], () => pick(['application/json', 'application/xml', 'text/plain', '*/*'])),
@@ -145,15 +149,4 @@ const templateTags = [
   tag('fakerXForwardedFor', 'HTTP · X-Forwarded-For', 'Documentation-range IPv4 address.', [], () => `192.0.2.${randomInt(1, 254)}`),
 ];
 
-const responseHooks = [async context => {
-  const id = context.response && typeof context.response.getRequestId === 'function' ? context.response.getRequestId() : undefined;
-  if (!id) return;
-  const successful = context.response.getStatusCode() >= 200 && context.response.getStatusCode() <= 299;
-  for (const [pendingKey, pending] of [...pendingCounters.entries()]) {
-    if (!pendingKey.startsWith(`${id}:`)) continue;
-    pendingCounters.delete(pendingKey);
-    if (successful) await writeCounter(context, pending.key, pending.value);
-  }
-}];
-
-module.exports = { templateTags, responseHooks };
+module.exports = { templateTags };
